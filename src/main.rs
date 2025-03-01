@@ -188,8 +188,7 @@ fn ingest(
         if node.data.len() < node.capacity {
             node.data.push(data_id)
         } else {
-            let evicted_index = rng.random_range(0..node.capacity);
-            let evicted = replace(&mut node.data[evicted_index as usize], data_id);
+            let evicted = replace(&mut node.data[rng.random_range(0..node.capacity)], data_id);
             let evicted_placement = data_placements.get_mut(&evicted).unwrap();
             evicted_placement.remove(
                 evicted_placement
