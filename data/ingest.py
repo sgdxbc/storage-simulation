@@ -1,10 +1,12 @@
 import altair as alt
 import polars as pl
 from glob import glob
+import os
+from pathlib import Path
 
-f = max(glob("data-saved/ingest/*.csv"))
-print(f)
-df = pl.read_csv(f).with_columns(
+os.chdir(Path(__file__).parent)
+
+df = pl.read_csv("saved/ingest/*.csv").with_columns(
     (pl.col("utilized_capacity") / pl.col("total_capacity")).alias(
         "capacity utilization"
     ),

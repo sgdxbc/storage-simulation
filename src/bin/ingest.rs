@@ -68,7 +68,6 @@ fn main() -> anyhow::Result<()> {
 
     let mut rng = rng();
     create_dir_all("data/ingest")?;
-    File::create("data/.gitignore")?.write_all(b"*")?;
     let mut output = File::create(format!(
         "data/ingest/{}.csv",
         UNIX_EPOCH.elapsed().unwrap().as_secs()
@@ -77,21 +76,6 @@ fn main() -> anyhow::Result<()> {
         &mut output,
         "num_node,node_min_capacity,node_max_capacity,capacity_skew,num_copy,strategy,total_capacity,num_stored,num_utilized_node,utilized_capacity,redundancy"
     )?;
-
-    // let node_capacity: usize = 4 << 10;
-    // for two_choices in [false, true] {
-    //     for node_min_capacity in [1, 2, 3, 4].into_iter().map(|n| n << 10) {
-    //         run(
-    //             num_node,
-    //             node_min_capacity,
-    //             node_capacity,
-    //             num_copy,
-    //             two_choices,
-    //             StdRng::from_rng(&mut rng),
-    //             &mut output,
-    //         )?
-    //     }
-    // }
 
     for two_choices in [false, true] {
         for node_min_capacity in (6..=12).step_by(2).map(|k| 1 << k) {
@@ -146,7 +130,10 @@ fn run(
         (node_max_capacity - node_min_capacity) as f32,
         capacity_skew,
     )?;
+    let start = Instant::now();
     let results = (0..num_sim).map(|i| (i, StdRng::from_rng(&mut rng))).collect::<Vec<_>>().into_par_iter().map(|(sim_i, mut rng)| {
+        let report = |s: String| eprint!("\r[{:10?}] [{sim_i:03}/{num_sim:03}] {s:120}", start.elapsed());
+
         let mut network = Network::new();
         let mut nodes = HashMap::default();
         // let mut data_placements = HashMap::<_, Vec<_>>::default();
@@ -197,18 +184,15 @@ fn run(
             }
             num_stored += 1;
             if last_report.elapsed() >= Duration::from_secs(1) {
-                eprint!(
-                    "\r[{sim_i:03}/{num_sim:03}] {:120}",
-                    format!("Stored {num_stored}"));
+                report(format!("Stored {num_stored}"));
                 last_report = Instant::now()
             }
         }
         let num_utilized_node = nodes.values().filter(|node| !node.data.is_empty()).count();
         let utilized_capacity = nodes.values().map(|node| node.data.len()).sum::<usize>();
-        eprint!(
-            "\r[{sim_i:03}/{num_sim:03}] {:120}",
+        report(
             format!(
-                "Stored {num_stored} Utiliazed Node {:.2} Utilized Capacity {:.2} Average Redundancy {:.2}",
+                "Stored {num_stored} Utilized Node {:.2} Utilized Capacity {:.2} Average Redundancy {:.2}",
                 num_utilized_node as f32 / nodes.len() as f32,
                 utilized_capacity as f32 / total_capacity as f32,
                 utilized_capacity as f32 / num_stored as f32));
