@@ -1,3 +1,6 @@
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 pub type DataId = u64;
 pub type NodeId = u64;
 pub type Distance = u64;
