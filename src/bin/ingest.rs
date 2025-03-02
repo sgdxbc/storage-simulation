@@ -63,14 +63,14 @@ impl Network {
 
 fn main() -> anyhow::Result<()> {
     let num_node: usize = 12_000;
-    let node_capacity: usize = 64;
+    let node_capacity: usize = 4 << 10;
     let num_copy: usize = 3;
 
     let mut rng = rng();
-    create_dir_all("data")?;
+    create_dir_all("data/ingest")?;
     File::create("data/.gitignore")?.write_all(b"*")?;
     let mut output = File::create(format!(
-        "data/{}.csv",
+        "data/ingest/{}.csv",
         UNIX_EPOCH.elapsed().unwrap().as_secs()
     ))?;
     writeln!(
@@ -78,7 +78,7 @@ fn main() -> anyhow::Result<()> {
         "num_node,node_min_capacity,node_capacity,num_copy,strategy,total_capacity,num_stored,num_utilized_node,utilized_capacity,redundancy"
     )?;
     for two_choices in [false, true] {
-        for node_min_capacity in [16, 32, 48, 64] {
+        for node_min_capacity in [1, 2, 3, 4].into_iter().map(|n| n << 10) {
             for _ in 0..100 {
                 run(
                     num_node,

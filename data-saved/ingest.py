@@ -2,12 +2,11 @@ import altair as alt
 import polars as pl
 from glob import glob
 
-df = pl.read_csv(glob("data-saved/*.csv")[-1]).with_columns(
+df = pl.read_csv(glob("data-saved/ingest/*.csv")[-1]).with_columns(
     (pl.col("utilized_capacity") / pl.col("total_capacity")).alias(
         "capacity utilization"
     )
 )
-df
 box_chart = (
     alt.Chart(df)
     .encode(
@@ -22,4 +21,4 @@ line_chart = (
     .encode(x="node_min_capacity", y="mean(capacity utilization)", color="strategy")
     .mark_line()
 )
-(box_chart + line_chart).save("graph.png")
+(box_chart + line_chart).save("ingest.png")
