@@ -1,6 +1,5 @@
 import altair as alt
 import polars as pl
-from glob import glob
 import os
 from pathlib import Path
 

@@ -9,6 +9,7 @@ use rand::{Rng, SeedableRng, rng, rngs::StdRng};
 use rand_distr::{Distribution, Zipf};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use rustc_hash::FxHashMap as HashMap;
+use storage_simulation::{Overlay as _, Vanilla};
 
 type DataId = u64;
 type NodeId = u64;
@@ -23,45 +24,6 @@ impl Node {
         self.capacity - self.data.len()
     }
 }
-
-struct Network {
-    subnets: Vec<Vec<NodeId>>,
-}
-
-const SUBNET_PROXIMITY: u32 = 11;
-
-impl Network {
-    fn new() -> Self {
-        Self {
-            subnets: (0..1 << SUBNET_PROXIMITY)
-                .map(|_| Default::default())
-                .collect(),
-        }
-    }
-
-    fn insert_node(&mut self, node_id: NodeId) {
-        self.subnets[(node_id >> (NodeId::BITS - SUBNET_PROXIMITY)) as usize].push(node_id)
-    }
-
-    fn find(&self, data_id: DataId, count: usize) -> Vec<NodeId> {
-        let data_subnet = data_id >> (DataId::BITS - SUBNET_PROXIMITY);
-        let mut node_ids = Vec::new();
-        for diff in 0.. {
-            let mut subnet = self.subnets[(data_subnet ^ diff) as usize].clone();
-            if subnet.len() <= count - node_ids.len() {
-                node_ids.extend(subnet.clone())
-            } else {
-                subnet.sort_unstable_by_key(|id| id ^ data_id);
-                node_ids.extend(subnet.into_iter().take(count - node_ids.len()))
-            }
-            if node_ids.len() == count {
-                break;
-            }
-        }
-        node_ids
-    }
-}
-
 fn main() -> anyhow::Result<()> {
     let num_node: usize = 12_000;
     let num_copy: usize = 3;
@@ -95,8 +57,7 @@ fn main() -> anyhow::Result<()> {
 
     let node_min_capacity = 1 << 12;
     for two_choices in [false, true] {
-        let mut skew = 1.;
-        while skew <= 2. {
+        for skew in (10..=20).map(|n| n as f32 / 10.) {
             run(
                 100,
                 num_node,
@@ -107,8 +68,7 @@ fn main() -> anyhow::Result<()> {
                 two_choices,
                 &mut rng,
                 &mut output,
-            )?;
-            skew += 0.1
+            )?
         }
     }
     Ok(())
@@ -125,16 +85,18 @@ fn run(
     mut rng: impl Rng,
     mut output: impl Write,
 ) -> anyhow::Result<()> {
-    println!("Capacity {node_min_capacity}/{node_max_capacity} Two choices {two_choices}");
+    println!(
+        "Capacity {node_min_capacity}/{node_max_capacity} Skew {capacity_skew} Two choices {two_choices}"
+    );
     let node_capacity_variance_distr = Zipf::new(
         (node_max_capacity - node_min_capacity) as f32,
         capacity_skew,
     )?;
     let start = Instant::now();
     let results = (0..num_sim).map(|i| (i, StdRng::from_rng(&mut rng))).collect::<Vec<_>>().into_par_iter().map(|(sim_i, mut rng)| {
-        let report = |s: String| eprint!("\r[{:10?}] [{sim_i:03}/{num_sim:03}] {s:120}", start.elapsed());
+        let report = |s: String| eprint!("\r[{:10.3?}] [{sim_i:03}/{num_sim:03}] {s:120}", start.elapsed());
 
-        let mut network = Network::new();
+        let mut network = Vanilla::new();
         let mut nodes = HashMap::default();
         // let mut data_placements = HashMap::<_, Vec<_>>::default();
         let mut total_capacity = 0;

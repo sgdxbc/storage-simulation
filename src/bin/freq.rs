@@ -11,13 +11,12 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use storage_simulation::{Classified, Overlay};
 
 fn main() -> anyhow::Result<()> {
-    let num_find: u32 = 100_000;
+    let num_find: u32 = 1_000_000;
     let num_build = 1_000;
     let find_size: usize = 3;
 
     let mut rng = rng();
     create_dir_all("data/freq")?;
-    File::create("data/.gitignore")?.write_all(b"*")?;
     let mut output = File::create(format!(
         "data/freq/{}.csv",
         UNIX_EPOCH.elapsed().unwrap().as_secs()
