@@ -48,3 +48,5 @@ proptest! {
         assert_eq!(result_node_ids, vec![node_id])
     }
 }
+
+// TODO verify there's no more node id that is closer to any of the returned ones by `find`
