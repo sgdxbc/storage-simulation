@@ -30,13 +30,17 @@ fn main() -> anyhow::Result<()> {
 
     let mut rng = rng();
     create_dir_all("data/ingest")?;
-    let mut output = File::create(format!(
-        "data/ingest/{}.csv",
-        UNIX_EPOCH.elapsed().unwrap().as_secs()
-    ))?;
+    let tag = UNIX_EPOCH.elapsed().unwrap().as_secs();
+    let mut sys_output = File::create(format!("data/ingest/{tag}-sys.csv"))?;
+    let mut bin_output = File::create(format!("data/ingest/{tag}-bin.csv"))?;
+    let prefix = "num_node,node_min_capacity,node_max_capacity,capacity_skew,num_copy,strategy";
     writeln!(
-        &mut output,
-        "num_node,node_min_capacity,node_max_capacity,capacity_skew,num_copy,strategy,total_capacity,num_stored,num_utilized_node,utilized_capacity,redundancy"
+        &mut sys_output,
+        "{prefix},total_capacity,num_stored,num_utilized_node,utilized_capacity,redundancy",
+    )?;
+    writeln!(
+        &mut bin_output,
+        "{prefix},bin_index,num_bin_node,bin_hit_count,bin_capacity,bin_used_capacity,bin_max_utilization"
     )?;
 
     // for two_choices in [false, true] {
@@ -89,7 +93,8 @@ fn main() -> anyhow::Result<()> {
         true,
         false,
         &mut rng,
-        &mut output,
+        &mut sys_output,
+        &mut bin_output,
     )?;
 
     Ok(())
@@ -105,7 +110,8 @@ fn run(
     classified: bool,
     two_choices: bool,
     mut rng: impl Rng,
-    mut output: impl Write,
+    mut sys_output: impl Write,
+    mut bin_output: impl Write,
 ) -> anyhow::Result<()> {
     println!(
         "Capacity {node_min_capacity}/{node_max_capacity} Skew {capacity_skew} Classified={classified} Two choices={two_choices}"
@@ -148,8 +154,11 @@ fn run(
             (true, true) => "Classified+TwoChoices",
         },
     );
-    for line in results {
-        writeln!(&mut output, "{prefix},{line}")?
+    for (sys_stats, bin_stats) in results {
+        writeln!(&mut sys_output, "{prefix},{sys_stats}")?;
+        for line in bin_stats {
+            writeln!(&mut bin_output, "{prefix},{line}")?
+        }
     }
     Ok(())
 }
@@ -163,7 +172,7 @@ fn run2(
     node_capacity_variance_distr: Zipf<f32>,
     mut rng: StdRng,
     report: impl Fn(String),
-) -> String {
+) -> (String, Vec<String>) {
     enum Network {
         Vanilla(Vanilla),
         Classified(Classified),
@@ -207,10 +216,19 @@ fn run2(
         let replaced = nodes.insert(node_id, node);
         assert!(replaced.is_none(), "duplicated node {node_id:016x}")
     }
-
     // println!("Total capacity {total_capacity}");
+
+    #[derive(Default, Clone)]
+    struct NodeBin {
+        num_node: usize,
+        freq: usize,
+        capacity: usize,
+        used_capacity: usize,
+        max_utilization: f32,
+    }
     let mut num_stored = 0;
     let mut copy_counts = HashMap::default();
+    let mut bins = vec![NodeBin::default(); 64];
     let mut last_report = Instant::now();
     loop {
         let data_id;
@@ -231,6 +249,13 @@ fn run2(
                 (data_id1, node_ids1)
             }
         }
+        for node_id in &node_ids {
+            let node = &nodes[node_id];
+            let bin = &mut bins[((node.capacity as f32 / node_min_capacity as f32)
+                .log2()
+                .floor()) as usize];
+            bin.freq += 1
+        }
         if !ingest(&mut rng, &mut nodes, &mut copy_counts, data_id, node_ids) {
             break;
         }
@@ -248,10 +273,31 @@ fn run2(
         utilized_capacity as f32 / total_capacity as f32,
         utilized_capacity as f32 / num_stored as f32
     ));
-    format!(
+    let sys_stats = format!(
         "{total_capacity},{num_stored},{num_utilized_node},{utilized_capacity},{}",
         utilized_capacity as f32 / num_stored as f32,
-    )
+    );
+    for node in nodes.values() {
+        let bin = &mut bins[((node.capacity as f32 / node_min_capacity as f32)
+            .log2()
+            .floor()) as usize];
+        bin.num_node += 1;
+        bin.capacity += node.capacity;
+        bin.used_capacity += node.data.len();
+        bin.max_utilization = bin
+            .max_utilization
+            .max(node.data.len() as f32 / node.capacity as f32)
+    }
+    let mut bin_stats = Vec::new();
+    for (i, bin) in bins.into_iter().enumerate() {
+        if bin.num_node != 0 {
+            bin_stats.push(format!(
+                "{i},{},{},{},{},{}",
+                bin.num_node, bin.freq, bin.capacity, bin.used_capacity, bin.max_utilization
+            ))
+        }
+    }
+    (sys_stats, bin_stats)
 }
 
 fn ingest(

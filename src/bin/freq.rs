@@ -45,7 +45,7 @@ fn main() -> anyhow::Result<()> {
         num_node,
         num_find,
         find_size,
-        8,
+        12,
         1.,
         StdRng::from_rng(&mut rng),
         &mut output,

@@ -115,25 +115,29 @@ impl Classified {
     fn find(&self, data_id: DataId, count: usize) -> Vec<NodeId> {
         let original_subnet_index = (data_id >> (DataId::BITS - SUBNET_PROXIMITY)) as usize;
         let mut node_ids = self.unclassified.clone();
+        let mut mask = (1 << SUBNET_PROXIMITY) - 1;
         for class in 0..SUBNET_PROXIMITY {
             node_ids.extend(
-                self.subnets[class as usize][original_subnet_index >> class]
+                self.subnets[class as usize][original_subnet_index & mask]
                     .iter()
                     .map(|&id| (id, class as _)),
-            )
+            );
+            mask >>= 1
         }
         let mut diff = 1;
         while node_ids.len() < count && diff < (1 << SUBNET_PROXIMITY) {
             let subnet_index = original_subnet_index ^ diff;
             let class_mask = diff ^ (diff - 1);
+            let mut mask = (1 << SUBNET_PROXIMITY) - 1;
             for class in 0..SUBNET_PROXIMITY {
                 if (class_mask & (1 << class)) != 0 {
                     node_ids.extend(
-                        self.subnets[class as usize][subnet_index >> class]
+                        self.subnets[class as usize][subnet_index & mask]
                             .iter()
                             .map(|&id| (id, class as _)),
                     )
                 }
+                mask >>= 1
             }
             diff += 1
         }
