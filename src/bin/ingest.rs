@@ -9,7 +9,7 @@ use rand::{Rng, SeedableRng, rng, rngs::StdRng};
 use rand_distr::{Distribution, Zipf};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use rustc_hash::FxHashMap as HashMap;
-use storage_simulation::{Overlay as _, Vanilla};
+use storage_simulation::{Classified, Overlay, Vanilla};
 
 type DataId = u64;
 type NodeId = u64;
@@ -39,38 +39,59 @@ fn main() -> anyhow::Result<()> {
         "num_node,node_min_capacity,node_max_capacity,capacity_skew,num_copy,strategy,total_capacity,num_stored,num_utilized_node,utilized_capacity,redundancy"
     )?;
 
-    for two_choices in [false, true] {
-        for node_min_capacity in (6..=12).step_by(2).map(|k| 1 << k) {
-            run(
-                100,
-                num_node,
-                node_min_capacity,
-                node_min_capacity * 100,
-                1.5,
-                num_copy,
-                two_choices,
-                &mut rng,
-                &mut output,
-            )?
-        }
-    }
+    // for two_choices in [false, true] {
+    //     for node_min_capacity in (6..=12).step_by(2).map(|k| 1 << k) {
+    //         run(
+    //             100,
+    //             num_node,
+    //             node_min_capacity,
+    //             node_min_capacity * 100,
+    //             1.5,
+    //             num_copy,
+    //             false,
+    //             two_choices,
+    //             &mut rng,
+    //             &mut output,
+    //         )?
+    //     }
+    // }
 
     let node_min_capacity = 1 << 12;
-    for two_choices in [false, true] {
-        for skew in (10..=20).map(|n| n as f32 / 10.) {
-            run(
-                100,
-                num_node,
-                node_min_capacity,
-                node_min_capacity * 100,
-                skew,
-                num_copy,
-                two_choices,
-                &mut rng,
-                &mut output,
-            )?
+    // for classified in [false, true] {
+    let classified = true;
+    {
+        //     for two_choices in [false, true] {
+        let two_choices = false;
+        {
+            for skew in (10..=20).map(|n| n as f32 / 10.) {
+                run(
+                    1,
+                    num_node,
+                    node_min_capacity,
+                    node_min_capacity * 16,
+                    skew,
+                    num_copy,
+                    classified,
+                    two_choices,
+                    &mut rng,
+                    &mut output,
+                )?
+            }
         }
     }
+    // run(
+    //     100,
+    //     num_node,
+    //     node_min_capacity,
+    //     node_min_capacity * 16,
+    //     1.,
+    //     num_copy,
+    //     true,
+    //     false,
+    //     &mut rng,
+    //     &mut output,
+    // )?;
+
     Ok(())
 }
 
@@ -81,12 +102,13 @@ fn run(
     node_max_capacity: usize,
     capacity_skew: f32,
     num_copy: usize,
+    classified: bool,
     two_choices: bool,
     mut rng: impl Rng,
     mut output: impl Write,
 ) -> anyhow::Result<()> {
     println!(
-        "Capacity {node_min_capacity}/{node_max_capacity} Skew {capacity_skew} Two choices {two_choices}"
+        "Capacity {node_min_capacity}/{node_max_capacity} Skew {capacity_skew} Classified {classified} Two choices {two_choices}"
     );
     let node_capacity_variance_distr = Zipf::new(
         (node_max_capacity - node_min_capacity) as f32,
@@ -96,7 +118,21 @@ fn run(
     let results = (0..num_sim).map(|i| (i, StdRng::from_rng(&mut rng))).collect::<Vec<_>>().into_par_iter().map(|(sim_i, mut rng)| {
         let report = |s: String| eprint!("\r[{:10.3?}] [{sim_i:03}/{num_sim:03}] {s:120}", start.elapsed());
 
-        let mut network = Vanilla::new();
+        enum Network {
+            Vanilla(Vanilla),
+            Classified(Classified),
+        }
+
+        impl Network {
+            fn find(&self, target: DataId, count: usize) -> Vec<NodeId> {
+                match self {
+                    Self::Vanilla(network) => network.find(target, count),
+                    Self::Classified(network) => network.find(target, count),
+                }
+            }
+        }
+
+        let mut network = if classified {Network::Classified(Classified::new())} else {Network::Vanilla(Vanilla::new())};
         let mut nodes = HashMap::default();
         // let mut data_placements = HashMap::<_, Vec<_>>::default();
         let mut total_capacity = 0;
@@ -108,10 +144,15 @@ fn run(
                 data: Default::default(),
             };
             total_capacity += node.capacity;
-            network.insert_node(node_id);
+            match &mut network {
+                Network::Vanilla(network) =>
+                network.insert_node(node_id),
+                Network::Classified(network) => network.insert_node(node_id, (node.capacity as f32 / node_min_capacity as f32).log2().round() as _),
+            }
             let replaced = nodes.insert(node_id, node);
             assert!(replaced.is_none(), "duplicated node {node_id:016x}")
         }
+
         // println!("Total capacity {total_capacity}");
         let mut num_stored = 0;
         let mut copy_counts = HashMap::default();
@@ -160,7 +201,12 @@ fn run(
                 utilized_capacity as f32 / num_stored as f32));
         format!(
             "{num_node},{node_min_capacity},{node_max_capacity},{capacity_skew},{num_copy},{},{total_capacity},{num_stored},{num_utilized_node},{utilized_capacity},{}",
-            if two_choices { "TwoChoices" } else { "Vanilla" },
+            match (classified, two_choices) {
+                (false, false) => "Vanilla",
+                (true, false) => "Classified",
+                (false, true) => "TwoChoices",
+                (true, true) => "Classified+TwoChoices"
+            },
             utilized_capacity as f32 / num_stored as f32
         )
     }).collect::<Vec<_>>();
@@ -179,6 +225,15 @@ fn ingest(
     data_id: DataId,
     node_ids: Vec<NodeId>,
 ) -> bool {
+    assert!(
+        node_ids
+            .iter()
+            .enumerate()
+            .all(|(i, id)| node_ids.iter().skip(i + 1).all(|other_id| id != other_id))
+    );
+    // let replaced = data_placements.insert(data_id, node_ids);
+    let replaced = copy_counts.insert(data_id, node_ids.len() as _);
+    assert!(replaced.is_none(), "duplicated data {data_id:016x}");
     for &node_id in &node_ids {
         let node = nodes.get_mut(&node_id).unwrap();
         if node.data.len() < node.capacity {
@@ -203,8 +258,5 @@ fn ingest(
             }
         }
     }
-    // let replaced = data_placements.insert(data_id, node_ids);
-    let replaced = copy_counts.insert(data_id, node_ids.len() as _);
-    assert!(replaced.is_none(), "duplicated data {data_id:016x}");
     true
 }

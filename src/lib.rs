@@ -127,8 +127,15 @@ impl Classified {
                 break;
             }
         }
+        assert!(
+            node_ids
+                .iter()
+                .enumerate()
+                .all(|(i, id)| node_ids.iter().skip(i + 1).all(|other_id| id != other_id)),
+            "{node_ids:016x?}"
+        );
         node_ids.sort_unstable_by_key(|&(id, class)| classified::distance(id, data_id, class));
-        node_ids.into_iter().map(|(id, _)| id).collect()
+        node_ids.into_iter().take(count).map(|(id, _)| id).collect()
     }
 }
 
