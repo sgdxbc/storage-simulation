@@ -75,6 +75,7 @@ pub mod classified {
     }
 }
 
+#[derive(Debug)]
 pub struct Classified {
     // class 0..SUBNET_PROXIMITY
     // [class -> [subnet prefix -> [node id]]]
@@ -112,22 +113,31 @@ impl Classified {
     }
 
     fn find(&self, data_id: DataId, count: usize) -> Vec<NodeId> {
-        let data_subnet = data_id >> (DataId::BITS - SUBNET_PROXIMITY);
+        let original_subnet_index = (data_id >> (DataId::BITS - SUBNET_PROXIMITY)) as usize;
         let mut node_ids = self.unclassified.clone();
-        for diff in 0.. {
-            let subnet_index = (data_subnet ^ diff) as usize;
-            for class in 0..SUBNET_PROXIMITY {
-                node_ids.extend(
-                    self.subnets[class as usize][subnet_index >> class]
-                        .iter()
-                        .map(|&id| (id, class as _)),
-                )
-            }
-            if node_ids.len() >= count {
-                break;
-            }
+        for class in 0..SUBNET_PROXIMITY {
+            node_ids.extend(
+                self.subnets[class as usize][original_subnet_index >> class]
+                    .iter()
+                    .map(|&id| (id, class as _)),
+            )
         }
-        assert!(
+        let mut diff = 1;
+        while node_ids.len() < count && diff < (1 << SUBNET_PROXIMITY) {
+            let subnet_index = original_subnet_index ^ diff;
+            let class_mask = diff ^ (diff - 1);
+            for class in 0..SUBNET_PROXIMITY {
+                if (class_mask & (1 << class)) != 0 {
+                    node_ids.extend(
+                        self.subnets[class as usize][subnet_index >> class]
+                            .iter()
+                            .map(|&id| (id, class as _)),
+                    )
+                }
+            }
+            diff += 1
+        }
+        debug_assert!(
             node_ids
                 .iter()
                 .enumerate()
@@ -144,3 +154,6 @@ impl Overlay for Classified {
         Classified::find(self, target, count)
     }
 }
+
+#[cfg(test)]
+mod tests;
