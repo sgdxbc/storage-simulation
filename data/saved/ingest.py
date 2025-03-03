@@ -5,25 +5,22 @@ from pathlib import Path
 
 os.chdir(Path(__file__).parent)
 
-df = pl.read_csv("saved/ingest/*.csv").with_columns(
+df = pl.read_csv(
+    "ingest/*-sys.csv", schema_overrides={"capacity_skew": pl.Float32}
+).with_columns(
     (pl.col("utilized_capacity") / pl.col("total_capacity")).alias(
         "capacity utilization"
     ),
     (pl.col("total_capacity") / pl.col("num_node")).alias("average node capacity"),
 )
 (
-    alt.Chart(df.filter(pl.col("capacity_skew") == 1.5))
-    .mark_point()
-    .encode(
-        alt.X("average node capacity").scale(type="log"),
-        alt.Y("capacity utilization"),
-        alt.Color("strategy"),
-    )
-    | alt.Chart(df.filter(pl.col("node_min_capacity") == 1 << 12))
-    .mark_boxplot()
+    alt.Chart(df)
+    .mark_boxplot(opacity=0.5)
     .encode(
         alt.X("capacity_skew").scale(zero=False),
         alt.Y("capacity utilization"),
-        alt.Color("strategy"),
+        alt.Color("strategy").sort(
+            ["Vanilla", "Classified", "TwoChoices", "Classified+TwoChoices"]
+        ),
     )
-).resolve_scale(y="shared").save("ingest.png")
+).save("ingest.pdf")

@@ -60,42 +60,39 @@ fn main() -> anyhow::Result<()> {
     //     }
     // }
 
-    let node_min_capacity = 1 << 12;
-    // // for classified in [false, true] {
-    // let classified = true;
-    // {
-    //     //     for two_choices in [false, true] {
-    //     let two_choices = true;
-    //     {
-    //         for skew in (10..=20).map(|n| n as f32 / 10.) {
-    //             run(
-    //                 100,
-    //                 num_node,
-    //                 node_min_capacity,
-    //                 node_min_capacity * 100,
-    //                 skew,
-    //                 num_copy,
-    //                 classified,
-    //                 two_choices,
-    //                 &mut rng,
-    //                 &mut output,
-    //             )?
-    //         }
-    //     }
-    // }
-    run(
-        1,
-        num_node,
-        node_min_capacity,
-        node_min_capacity * 100,
-        1.,
-        num_copy,
-        true,
-        false,
-        &mut rng,
-        &mut sys_output,
-        &mut bin_output,
-    )?;
+    let node_min_capacity = 1 << 10;
+    for classified in [false, true] {
+        for two_choices in [false, true] {
+            for skew in (10..=20).map(|n| n as f32 / 10.) {
+                run(
+                    100,
+                    num_node,
+                    node_min_capacity,
+                    node_min_capacity * 100,
+                    skew,
+                    num_copy,
+                    classified,
+                    two_choices,
+                    &mut rng,
+                    &mut sys_output,
+                    &mut bin_output,
+                )?
+            }
+        }
+    }
+    // run(
+    //     1,
+    //     num_node,
+    //     node_min_capacity,
+    //     node_min_capacity * 100,
+    //     1.,
+    //     num_copy,
+    //     true,
+    //     true,
+    //     &mut rng,
+    //     &mut sys_output,
+    //     &mut bin_output,
+    // )?;
 
     Ok(())
 }

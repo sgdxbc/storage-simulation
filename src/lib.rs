@@ -63,11 +63,7 @@ pub mod classified {
     pub type NodeId = (super::NodeId, u8);
 
     pub fn subnet(node_id: super::NodeId, class: u8) -> usize {
-        if class >= super::SUBNET_PROXIMITY as u8 {
-            0
-        } else {
-            (node_id >> (super::NodeId::BITS - super::SUBNET_PROXIMITY + class as u32)) as _
-        }
+        ((node_id & (!0 >> class)) >> (super::NodeId::BITS - super::SUBNET_PROXIMITY)) as _
     }
 
     pub fn distance(node_id: super::NodeId, target: super::DataId, class: u8) -> super::Distance {
