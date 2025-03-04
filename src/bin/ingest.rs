@@ -62,7 +62,8 @@ fn main() -> anyhow::Result<()> {
 
     let node_min_capacity = 1 << 10;
     for classified in [false, true] {
-        for two_choices in [false, true] {
+        // for two_choices in [false, true] {
+        for two_choices in [true] {
             for skew in (10..=20).map(|n| n as f32 / 10.) {
                 run(
                     100,
@@ -236,10 +237,10 @@ fn run2(
         } else {
             let data_id0 = rng.random();
             let node_ids0 = network.find(data_id0, num_copy);
-            let score0 = node_ids0.iter().map(|id| nodes[id].score()).sum::<usize>();
+            let score0 = node_ids0.iter().map(|id| nodes[id].score()).min();
             let data_id1 = rng.random();
             let node_ids1 = network.find(data_id1, num_copy);
-            let score1 = node_ids1.iter().map(|id| nodes[id].score()).sum::<usize>();
+            let score1 = node_ids1.iter().map(|id| nodes[id].score()).min();
             (data_id, node_ids) = if score0 > score1 {
                 (data_id0, node_ids0)
             } else {
