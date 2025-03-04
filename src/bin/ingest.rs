@@ -9,7 +9,7 @@ use rand::{Rng, SeedableRng, rng, rngs::StdRng};
 use rand_distr::{Distribution, Zipf};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use rustc_hash::FxHashMap as HashMap;
-use storage_simulation::{Classified, Overlay, Vanilla};
+use storage_simulation::{Classified, Network, Vanilla};
 
 type DataId = u64;
 type NodeId = u64;
@@ -171,20 +171,6 @@ fn run2(
     mut rng: StdRng,
     report: impl Fn(String),
 ) -> (String, Vec<String>) {
-    enum Network {
-        Vanilla(Vanilla),
-        Classified(Classified),
-    }
-
-    impl Network {
-        fn find(&self, target: DataId, count: usize) -> Vec<NodeId> {
-            match self {
-                Self::Vanilla(network) => network.find(target, count),
-                Self::Classified(network) => network.find(target, count),
-            }
-        }
-    }
-
     let mut network = if classified {
         Network::Classified(Classified::new())
     } else {
