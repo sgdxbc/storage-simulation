@@ -1,6 +1,8 @@
+use std::collections::HashSet;
+
 use proptest::{prelude::*, sample::SizeRange, test_runner::FileFailurePersistence};
 
-use crate::{Classified, DataId, NodeId, classified};
+use crate::{Classified, DataId, NodeId, Vanilla, VanillaTrie, classified};
 
 fn common_config() -> ProptestConfig {
     ProptestConfig::with_failure_persistence(FileFailurePersistence::WithSource("regressions"))
@@ -49,4 +51,41 @@ proptest! {
     }
 }
 
-// TODO verify there's no more node id that is closer to any of the returned ones by `find`
+proptest! {
+    #[test]
+    fn vanilla_find_node_closest(node_ids: HashSet<NodeId>, data_id: DataId) {
+        let mut network = Vanilla::new();
+        let mut sorted_node_ids = node_ids.iter().cloned().collect::<Vec<_>>();
+        sorted_node_ids.sort_unstable_by_key(|id| id ^ data_id);
+        for node_id in node_ids {
+            network.insert_node(node_id)
+        }
+        for i in 1..sorted_node_ids.len() {
+            let node_ids = network.find(data_id, i);
+            assert_eq!(node_ids.len(), i);
+            assert!(sorted_node_ids[..i].iter().all(|id| node_ids.contains(id)))
+        }
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig {
+        cases: 1 << 10, // ~1.02s
+        ..common_config()
+    })]
+    #[test]
+    fn vanilla_trie_find_node_closest(node_ids: HashSet<NodeId>, data_id: DataId) {
+        let mut network = VanillaTrie::new();
+        let mut sorted_node_ids = node_ids.iter().cloned().collect::<Vec<_>>();
+        sorted_node_ids.sort_unstable_by_key(|id| id ^ data_id);
+        for node_id in node_ids {
+            network.insert_node(node_id)
+        }
+        for i in 1..sorted_node_ids.len() {
+            let node_ids = network.find(data_id, i);
+            // println!("{data_id:016x} {:016x?} {node_ids:016x?}", sorted_node_ids);
+            assert_eq!(node_ids.len(), i);
+            assert!(sorted_node_ids[..i].iter().all(|id| node_ids.contains(id)))
+        }
+    }
+}
