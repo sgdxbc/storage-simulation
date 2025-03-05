@@ -89,3 +89,30 @@ proptest! {
         }
     }
 }
+
+proptest! {
+    #![proptest_config(ProptestConfig {
+        cases: 1 << 10, // ~0.8s
+        ..common_config()
+    })]
+    #[test]
+    fn vanilla_trie_compress(node_ids: HashSet<NodeId>, data_id: DataId) {
+        if node_ids.is_empty() {
+            return Ok(())
+        }
+        let mut network = VanillaTrie::new();
+        let mut sorted_node_ids = node_ids.iter().cloned().collect::<Vec<_>>();
+        sorted_node_ids.sort_unstable_by_key(|id| id ^ data_id);
+        for node_id in node_ids {
+            network.insert_node(node_id)
+        }
+        network.compress();
+        network.assert_compressed();
+        for i in 1..sorted_node_ids.len() {
+            let node_ids = network.find(data_id, i);
+            // println!("{data_id:016x} {:016x?} {node_ids:016x?}", sorted_node_ids);
+            assert_eq!(node_ids.len(), i);
+            assert!(sorted_node_ids[..i].iter().all(|id| node_ids.contains(id)))
+        }
+    }
+}

@@ -63,14 +63,23 @@ impl Vanilla {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct VanillaTrie {
     data: VanillaTrieData,
 }
 
+#[derive(Debug, Clone)]
 enum VanillaTrieData {
     Empty,
     Node(NodeId),
-    SubTrie(Box<VanillaTrie>, Box<VanillaTrie>),
+    SubTrie(Box<VanillaSubTrie>),
+}
+
+#[derive(Debug, Clone)]
+struct VanillaSubTrie {
+    zero: VanillaTrie,
+    one: VanillaTrie,
+    skip: u32,
 }
 
 impl Default for VanillaTrie {
@@ -86,12 +95,16 @@ impl VanillaTrie {
         }
     }
 
+    fn is_empty(&self) -> bool {
+        matches!(self.data, VanillaTrieData::Empty)
+    }
+
     pub fn insert_node(&mut self, node_id: NodeId) {
-        self.insert_node_level(node_id, 0)
+        self.insert_node_level(node_id, NodeId::BITS - 1)
     }
 
     fn level_bit(node_id: NodeId, level: u32) -> bool {
-        (node_id >> (NodeId::BITS - (level + 1))) & 1 == 0
+        (node_id >> level) & 1 == 0
     }
 
     fn insert_node_level(&mut self, node_id: NodeId, level: u32) {
@@ -107,39 +120,83 @@ impl VanillaTrie {
                     } else {
                         &mut trie1
                     }
-                    .insert_node_level(node_id, level + 1)
+                    .insert_node_level(node_id, level - 1)
                 }
-                self.data = VanillaTrieData::SubTrie(trie0.into(), trie1.into())
+                self.data = VanillaTrieData::SubTrie(
+                    VanillaSubTrie {
+                        zero: trie0,
+                        one: trie1,
+                        skip: 0,
+                    }
+                    .into(),
+                )
             }
-            VanillaTrieData::SubTrie(trie0, trie1) => if Self::level_bit(node_id, level) {
-                trie0
+            VanillaTrieData::SubTrie(fork) => if Self::level_bit(node_id, level) {
+                &mut fork.zero
             } else {
-                trie1
+                &mut fork.one
             }
-            .insert_node_level(node_id, level + 1),
+            .insert_node_level(node_id, level - 1),
+        }
+    }
+
+    pub fn compress(&mut self) {
+        let VanillaTrieData::SubTrie(fork) = &mut self.data else {
+            return;
+        };
+        fork.zero.compress();
+        fork.one.compress();
+        if fork.zero.is_empty() {
+            let VanillaTrieData::SubTrie(fork1) = fork.one.data.clone() else {
+                unreachable!()
+            };
+            fork.zero = fork1.zero;
+            fork.one = fork1.one;
+            fork.skip = fork1.skip + 1
+        }
+        // probably not going to hit both `if` since an empty `fork.one` i.e. `fork1.one` should be compressed away
+        // because `fork1` i.e. the previous `fork.one` is already compressed
+        // nevertheless, not seeing anything bad even if both `if`s hit
+        if fork.one.is_empty() {
+            let VanillaTrieData::SubTrie(fork0) = fork.zero.data.clone() else {
+                unreachable!()
+            };
+            fork.zero = fork0.zero;
+            fork.one = fork0.one;
+            fork.skip = fork0.skip + 1
+        }
+    }
+
+    #[cfg(test)]
+    fn assert_compressed(&self) {
+        assert!(!self.is_empty());
+        if let VanillaTrieData::SubTrie(fork) = &self.data {
+            fork.zero.assert_compressed();
+            fork.one.assert_compressed()
         }
     }
 
     pub fn find(&self, data_id: DataId, count: usize) -> Vec<NodeId> {
-        self.find_level(data_id, count, 0)
+        self.find_level(data_id, count, NodeId::BITS - 1)
     }
 
-    fn find_level(&self, data_id: DataId, count: usize, level: u32) -> Vec<NodeId> {
+    fn find_level(&self, data_id: DataId, count: usize, mut level: u32) -> Vec<NodeId> {
         match &self.data {
             VanillaTrieData::Empty => vec![],
             VanillaTrieData::Node(node_id) => vec![*node_id],
-            VanillaTrieData::SubTrie(trie0, trie1) => {
+            VanillaTrieData::SubTrie(fork) => {
+                level -= fork.skip;
                 let (primary_trie, secondary_trie) = if Self::level_bit(data_id, level) {
-                    (trie0, trie1)
+                    (&fork.zero, &fork.one)
                 } else {
-                    (trie1, trie0)
+                    (&fork.one, &fork.zero)
                 };
-                let mut node_ids = primary_trie.find_level(data_id, count, level + 1);
+                let mut node_ids = primary_trie.find_level(data_id, count, level - 1);
                 if node_ids.len() < count {
                     node_ids.extend(secondary_trie.find_level(
                         data_id,
                         count - node_ids.len(),
-                        level + 1,
+                        level - 1,
                     ))
                 }
                 node_ids
