@@ -8,8 +8,8 @@ pub type NodeId = u64;
 pub type Distance = u64;
 
 pub enum Network {
-    Vanilla(Vanilla),
-    Classified(Classified),
+    Vanilla(VanillaBin),
+    Classified(ClassifiedTrie),
 }
 
 impl Network {
@@ -21,19 +21,19 @@ impl Network {
     }
 }
 
-pub struct Vanilla {
+pub struct VanillaBin {
     subnets: Vec<Vec<NodeId>>,
 }
 
 const SUBNET_BITS: u32 = 11;
 
-impl Default for Vanilla {
+impl Default for VanillaBin {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Vanilla {
+impl VanillaBin {
     pub fn new() -> Self {
         Self {
             subnets: (0..1 << SUBNET_BITS).map(|_| Default::default()).collect(),
@@ -146,25 +146,14 @@ impl VanillaTrie {
         };
         fork.zero.compress();
         fork.one.compress();
-        if fork.zero.is_empty() {
-            let VanillaTrieData::SubTrie(fork1) = fork.one.data.clone() else {
-                unreachable!()
-            };
-            fork.zero = fork1.zero;
-            fork.one = fork1.one;
-            fork.skip = fork1.skip + 1
-        }
-        // probably not going to hit both `if` since an empty `fork.one` i.e. `fork1.one` should be compressed away
-        // because `fork1` i.e. the previous `fork.one` is already compressed
-        // nevertheless, not seeing anything bad even if both `if`s hit
-        if fork.one.is_empty() {
-            let VanillaTrieData::SubTrie(fork0) = fork.zero.data.clone() else {
-                unreachable!()
-            };
-            fork.zero = fork0.zero;
-            fork.one = fork0.one;
-            fork.skip = fork0.skip + 1
-        }
+        use VanillaTrieData::*;
+        let nested_fork = match (&fork.zero.data, &fork.one.data) {
+            (Empty, SubTrie(fork)) | (SubTrie(fork), Empty) => fork.clone(),
+            (Empty, _) | (_, Empty) => unreachable!(),
+            _ => return,
+        };
+        *fork = nested_fork;
+        fork.skip += 1
     }
 
     #[cfg(test)]
@@ -205,49 +194,126 @@ impl VanillaTrie {
     }
 }
 
+pub type Class = u8;
+
 pub mod classified {
-    pub type NodeId = (super::NodeId, u8);
+    pub type NodeId = (super::NodeId, super::Class);
 
-    pub fn subnet(node_id: super::NodeId, class: u8) -> usize {
-        // ((node_id & (!0 >> class))
-        //     >> (((super::NodeId::BITS - super::SUBNET_BITS) as u8).max(class) - class)) as _
-        (node_id << class >> (super::NodeId::BITS - super::SUBNET_BITS)) as _
-    }
-
-    pub fn distance(node_id: super::NodeId, target: super::DataId, class: u8) -> super::Distance {
+    pub fn distance(
+        node_id: super::NodeId,
+        target: super::DataId,
+        class: super::Class,
+    ) -> super::Distance {
         (node_id ^ target) & (!0 >> class)
     }
 }
 
-#[derive(Debug)]
-pub struct Classified {
-    // [class -> [subnet prefix -> [node id]]]
-    subnets: Vec<Vec<Vec<NodeId>>>,
+#[derive(Debug, Clone)]
+pub struct ClassifiedTrie {
+    data: ClassifiedTrieData,
 }
 
-impl Default for Classified {
+#[derive(Debug, Clone)]
+enum ClassifiedTrieData {
+    Empty,
+    SubTrie(ClassifiedSubTrie),
+}
+
+#[derive(Debug, Clone)]
+struct ClassifiedSubTrie {
+    masked: Box<ClassifiedTrie>, // of next level, after consuming one bit of mask
+    unmasked: VanillaTrie,       // of the same level
+    skip: u32,
+}
+
+impl Default for ClassifiedTrie {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Classified {
+enum LevelBit {
+    Zero,
+    One,
+    Masked,
+}
+
+impl ClassifiedTrie {
     pub fn new() -> Self {
         Self {
-            // wasting some subnets in high classes
-            // probably not affecting correctness and performance
-            subnets: (0..NodeId::BITS)
-                .map(|_| (0..1 << SUBNET_BITS).map(|_| Default::default()).collect())
-                .collect(),
+            data: ClassifiedTrieData::Empty,
         }
     }
 
-    pub fn insert_node(&mut self, node_id: NodeId, class: u8) {
-        self.subnets[class as usize][classified::subnet(node_id, class)].push(node_id)
+    fn is_empty(&self) -> bool {
+        matches!(self.data, ClassifiedTrieData::Empty)
+    }
+
+    pub fn insert_node(&mut self, node_id: NodeId, class: Class) {
+        self.insert_node_level(node_id, class, NodeId::BITS - 1)
+    }
+
+    fn level_bit(node_id: NodeId, class: Class, level: u32) -> LevelBit {
+        if class as u32 >= NodeId::BITS - level {
+            LevelBit::Masked
+        } else if (node_id >> level) & 1 == 0 {
+            LevelBit::Zero
+        } else {
+            LevelBit::One
+        }
+    }
+
+    fn insert_node_level(&mut self, node_id: NodeId, class: Class, level: u32) {
+        // match &mut self.data {
+        //     ClassifiedTrieData::Empty => self.data = ClassifiedTrieData::Node(node_id, class),
+        //     &mut ClassifiedTrieData::Node(other_node_id, other_class) => {
+        //         assert_ne!(node_id, other_node_id);
+        //     }
+        //     ClassifiedTrieData::SubTrie(fork) => match Self::level_bit(node_id, class, level) {
+        //         LevelBit::Zero | LevelBit::One => fork.unmasked.insert_node_level(node_id, level),
+        //         LevelBit::Masked => fork.masked.insert_node_level(node_id, class, level - 1),
+        //     },
+        // }
+    }
+
+    pub fn compress(&mut self) {
+        let ClassifiedTrieData::SubTrie(fork) = &mut self.data else {
+            return;
+        };
+        fork.masked.compress();
+        fork.unmasked.compress();
+        if fork.unmasked.is_empty() {
+            let ClassifiedTrieData::SubTrie(another_fork) = fork.masked.data.clone() else {
+                unreachable!()
+            };
+            *fork = another_fork;
+            fork.skip += 1
+        }
+    }
+
+    #[cfg(test)]
+    fn assert_compressed(&self) {
+        assert!(!self.is_empty());
+        if let ClassifiedTrieData::SubTrie(fork) = &self.data {
+            fork.masked.assert_compressed();
+            fork.unmasked.assert_compressed()
+        }
     }
 
     pub fn find(&self, data_id: DataId, count: usize) -> Vec<NodeId> {
-        Default::default()
+        self.find_level(data_id, count, NodeId::BITS - 1)
+    }
+
+    fn find_level(&self, data_id: DataId, count: usize, mut level: u32) -> Vec<NodeId> {
+        match &self.data {
+            ClassifiedTrieData::Empty => vec![],
+            ClassifiedTrieData::SubTrie(fork) => {
+                level -= fork.skip;
+                let mut node_ids = fork.masked.find_level(data_id, count, level - 1);
+                node_ids.extend(fork.unmasked.find_level(data_id, count, level));
+                node_ids
+            }
+        }
     }
 }
 

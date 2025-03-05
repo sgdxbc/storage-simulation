@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use proptest::{prelude::*, sample::SizeRange, test_runner::FileFailurePersistence};
 
-use crate::{Classified, DataId, NodeId, Vanilla, VanillaTrie, classified};
+use crate::{ClassifiedTrie, DataId, NodeId, VanillaBin, VanillaTrie, classified};
 
 fn common_config() -> ProptestConfig {
     ProptestConfig::with_failure_persistence(FileFailurePersistence::WithSource("regressions"))
@@ -25,7 +25,7 @@ proptest! {
     })]
     #[test]
     fn classified_find_node_works(node_ids in classified_node_ids(), data_id: DataId) {
-        let mut network = Classified::new();
+        let mut network = ClassifiedTrie::new();
         for (node_id, class) in node_ids {
             network.insert_node(node_id, class)
         }
@@ -40,7 +40,7 @@ proptest! {
     })]
     #[test]
     fn classified_find_node_self(node_ids: Vec<NodeId>, find_node_id in classified_node_id()) {
-        let mut network = Classified::new();
+        let mut network = ClassifiedTrie::new();
         for node_id in node_ids {
             network.insert_node(node_id, 0)
         }
@@ -54,7 +54,7 @@ proptest! {
 proptest! {
     #[test]
     fn vanilla_find_node_closest(node_ids: HashSet<NodeId>, data_id: DataId) {
-        let mut network = Vanilla::new();
+        let mut network = VanillaBin::new();
         let mut sorted_node_ids = node_ids.iter().cloned().collect::<Vec<_>>();
         sorted_node_ids.sort_unstable_by_key(|id| id ^ data_id);
         for node_id in node_ids {
