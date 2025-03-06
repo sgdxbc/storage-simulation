@@ -38,7 +38,7 @@ pub mod classified {
         // mostly equivalent to left shift `class` then right right `NodeId::BITS - SUBNET_BITS`
         // but different with large classes
         ((id >> (super::NodeId::BITS - super::SUBNET_BITS - class as u32))
-            & (1 << (super::SUBNET_BITS - 1))) as _
+            & ((1 << super::SUBNET_BITS) - 1)) as _
     }
 }
 

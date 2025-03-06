@@ -1,6 +1,6 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use rand::{Rng as _, SeedableRng, rngs::StdRng};
-use storage_simulation::{DataId, VanillaBin, VanillaTrie};
+use storage_simulation::{Class, Classified, DataId, VanillaBin, VanillaTrie};
 
 pub fn criterion_benchmark(c: &mut Criterion) {
     let mut rng = StdRng::seed_from_u64(42);
@@ -23,6 +23,17 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         });
         network.compress();
         group.bench_function("VanillaTrieCompressed", |b| {
+            b.iter(|| network.find(rng.random(), find_size))
+        });
+        let mut network = Classified::new();
+        for _ in 0..num_node {
+            network.insert_node(
+                rng.random(),
+                8 - (rng.random_range(1.0f32..256.).log2().floor() as Class + 1),
+            )
+        }
+        network.optimize();
+        group.bench_function("Classified@8", |b| {
             b.iter(|| network.find(rng.random(), find_size))
         });
     }
