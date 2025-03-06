@@ -20,7 +20,7 @@ fn classified_node_ids() -> impl Strategy<Value = Vec<classified::NodeId>> {
 
 proptest! {
     #![proptest_config(ProptestConfig {
-        cases: 1 << 12, // ~0.6s
+        cases: 1 << 14, // ~0.7s
         ..common_config()
     })]
     #[test]
@@ -35,7 +35,7 @@ proptest! {
 
 proptest! {
     #![proptest_config(ProptestConfig {
-        cases: 1 << 13, // ~0.9s
+        cases: 1 << 15, // ~0.9s
         ..common_config()
     })]
     #[test]

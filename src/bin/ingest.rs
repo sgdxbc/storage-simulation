@@ -98,6 +98,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run(
     num_sim: u32,
     num_node: usize,
@@ -161,6 +162,7 @@ fn run(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run2(
     num_node: usize,
     node_min_capacity: usize,

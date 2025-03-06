@@ -35,6 +35,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run(
     num_sample: usize,
     classified: bool,
