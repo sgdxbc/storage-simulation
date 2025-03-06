@@ -9,7 +9,7 @@ use rand::{Rng, SeedableRng, rng, rngs::StdRng};
 use rand_distr::{Distribution, Zipf};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use rustc_hash::FxHashMap as HashMap;
-use storage_simulation::{ClassifiedTrie, Network, VanillaBin};
+use storage_simulation::{Classified, Network, VanillaBin};
 
 type DataId = u64;
 type NodeId = u64;
@@ -172,7 +172,7 @@ fn run2(
     report: impl Fn(String),
 ) -> (String, Vec<String>) {
     let mut network = if classified {
-        Network::Classified(ClassifiedTrie::new())
+        Network::Classified(Classified::new())
     } else {
         Network::Vanilla(VanillaBin::new())
     };

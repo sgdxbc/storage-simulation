@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use proptest::{prelude::*, sample::SizeRange, test_runner::FileFailurePersistence};
 
-use crate::{ClassifiedTrie, DataId, NodeId, VanillaBin, VanillaTrie, classified};
+use crate::{Classified, DataId, NodeId, VanillaBin, VanillaTrie, classified};
 
 fn common_config() -> ProptestConfig {
     ProptestConfig::with_failure_persistence(FileFailurePersistence::WithSource("regressions"))
@@ -25,7 +25,7 @@ proptest! {
     })]
     #[test]
     fn classified_find_node_works(node_ids in classified_node_ids(), data_id: DataId) {
-        let mut network = ClassifiedTrie::new();
+        let mut network = Classified::new();
         for (node_id, class) in node_ids {
             network.insert_node(node_id, class)
         }
@@ -40,7 +40,7 @@ proptest! {
     })]
     #[test]
     fn classified_find_node_self(node_ids: Vec<NodeId>, find_node_id in classified_node_id()) {
-        let mut network = ClassifiedTrie::new();
+        let mut network = Classified::new();
         for node_id in node_ids {
             network.insert_node(node_id, 0)
         }
