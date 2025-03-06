@@ -30,18 +30,6 @@ fn main() -> anyhow::Result<()> {
 
     let mut rng = rng();
     create_dir_all("data/ingest")?;
-    let tag = UNIX_EPOCH.elapsed().unwrap().as_secs();
-    let mut sys_output = File::create(format!("data/ingest/{tag}-sys.csv"))?;
-    let mut bin_output = File::create(format!("data/ingest/{tag}-bin.csv"))?;
-    let prefix = "num_node,node_min_capacity,node_max_capacity,capacity_skew,num_copy,strategy";
-    writeln!(
-        &mut sys_output,
-        "{prefix},total_capacity,num_stored,num_utilized_node,utilized_capacity,redundancy",
-    )?;
-    writeln!(
-        &mut bin_output,
-        "{prefix},bin_index,num_bin_node,bin_hit_count,bin_capacity,bin_used_capacity,bin_max_utilization"
-    )?;
 
     // for two_choices in [false, true] {
     //     for node_min_capacity in (6..=12).step_by(2).map(|k| 1 << k) {
@@ -55,15 +43,13 @@ fn main() -> anyhow::Result<()> {
     //             false,
     //             two_choices,
     //             &mut rng,
-    //             &mut output,
     //         )?
     //     }
     // }
 
     let node_min_capacity = 1 << 10;
     for classified in [false, true] {
-        // for two_choices in [false, true] {
-        for two_choices in [true] {
+        for two_choices in [false, true] {
             for skew in (10..=20).map(|n| n as f32 / 10.) {
                 run(
                     100,
@@ -75,8 +61,6 @@ fn main() -> anyhow::Result<()> {
                     classified,
                     two_choices,
                     &mut rng,
-                    &mut sys_output,
-                    &mut bin_output,
                 )?
             }
         }
@@ -109,12 +93,24 @@ fn run(
     classified: bool,
     two_choices: bool,
     mut rng: impl Rng,
-    mut sys_output: impl Write,
-    mut bin_output: impl Write,
 ) -> anyhow::Result<()> {
     println!(
         "Capacity {node_min_capacity}/{node_max_capacity} Skew {capacity_skew} Classified={classified} Two choices={two_choices}"
     );
+
+    let tag = UNIX_EPOCH.elapsed().unwrap().as_secs();
+    let mut sys_output = File::create(format!("data/ingest/{tag}-sys.csv"))?;
+    let mut bin_output = File::create(format!("data/ingest/{tag}-bin.csv"))?;
+    let prefix = "num_node,node_min_capacity,node_max_capacity,capacity_skew,num_copy,strategy";
+    writeln!(
+        &mut sys_output,
+        "{prefix},total_capacity,num_stored,num_utilized_node,utilized_capacity,redundancy",
+    )?;
+    writeln!(
+        &mut bin_output,
+        "{prefix},bin_index,num_bin_node,bin_hit_count,bin_capacity,bin_used_capacity,bin_max_utilization"
+    )?;
+
     let node_capacity_variance_distr = Zipf::new(
         (node_max_capacity - node_min_capacity) as f32,
         capacity_skew,
@@ -203,6 +199,9 @@ fn run2(
         assert!(replaced.is_none(), "duplicated node {node_id:016x}")
     }
     // println!("Total capacity {total_capacity}");
+    if let Network::Classified(network) = &mut network {
+        network.optimize()
+    }
 
     #[derive(Default, Clone)]
     struct NodeBin {
