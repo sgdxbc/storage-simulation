@@ -7,16 +7,16 @@ pub type DataId = u64;
 pub type NodeId = u64;
 pub type Distance = u64;
 
-pub enum Network {
+pub enum Overlay {
     Vanilla(VanillaBin),
     Classified(Classified),
 }
 
-impl Network {
+impl Overlay {
     pub fn find(&self, target: DataId, count: usize) -> Vec<NodeId> {
         match self {
-            Self::Vanilla(network) => network.find(target, count),
-            Self::Classified(network) => network.find(target, count),
+            Self::Vanilla(overlay) => overlay.find(target, count),
+            Self::Classified(overlay) => overlay.find(target, count),
         }
     }
 }
