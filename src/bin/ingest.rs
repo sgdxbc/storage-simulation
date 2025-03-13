@@ -24,64 +24,56 @@ fn main() -> anyhow::Result<()> {
     let capacity_multiplier = 1 << 7;
 
     let mut rng = rng();
-    create_dir_all("data/ingest-loss")?;
+    create_dir_all("data/ingest-evict")?;
     create_dir_all("data/ingest-reject")?;
 
     if args().nth(1).as_deref() == Some("test") {
         return run(
-            Sim::Reject(10_000_000),
+            Sim::Evict(10_000_000),
             1,
             num_node,
             node_min_capacity,
             capacity_multiplier,
             1.,
             num_copy,
-            true,
-            true,
+            false,
+            false,
             &mut rng,
         );
     }
 
-    // let node_min_capacity = 1 << 10;
-    // for classified in [false, true] {
-    //     for two_choices in [false, true] {
-    //         for skew in (10..=20).map(|n| n as f32 / 10.) {
-    //             run(
-    //                 Sim::Loss,
-    //                 100,
-    //                 num_node,
-    //                 node_min_capacity,
-    //                 node_min_capacity * 100,
-    //                 skew,
-    //                 num_copy,
-    //                 classified,
-    //                 two_choices,
-    //                 &mut rng,
-    //             )?
-    //         }
-    //     }
+    run(
+        Sim::Evict(10_000_000),
+        num_sim,
+        num_node,
+        node_min_capacity,
+        capacity_multiplier,
+        1.,
+        num_copy,
+        false,
+        false,
+        &mut rng,
+    )?;
+    // for (classified, two_choices) in [(false, false), (true, true)] {
+    //     run(
+    //         Sim::Reject(10_000_000),
+    //         num_sim,
+    //         num_node,
+    //         node_min_capacity,
+    //         capacity_multiplier,
+    //         1.,
+    //         num_copy,
+    //         classified,
+    //         two_choices,
+    //         &mut rng,
+    //     )?
     // }
-
-    for (classified, two_choices) in [(false, false), (true, true)] {
-        run(
-            Sim::Reject(10_000_000),
-            num_sim,
-            num_node,
-            node_min_capacity,
-            capacity_multiplier,
-            1.,
-            num_copy,
-            classified,
-            two_choices,
-            &mut rng,
-        )?
-    }
     Ok(())
 }
 
 #[derive(Debug)]
 enum Sim {
-    Loss,
+    Evict(usize),
     Reject(usize),
 }
 
@@ -133,15 +125,16 @@ fn run(
         .collect::<Vec<_>>()
         .into_par_iter();
     match program {
-        Sim::Loss => {
+        Sim::Evict(num_attempt) => {
             let results = rngs
                 .map(|(report, rng)| {
-                    sim_loss(
+                    sim_evict(
                         num_node,
-                        node_min_capacity,
+                        num_attempt,
                         num_copy,
                         classified,
                         two_choices,
+                        node_min_capacity,
                         node_capacity_variance_distr,
                         rng,
                         report,
@@ -149,20 +142,11 @@ fn run(
                 })
                 .collect::<Vec<_>>();
             eprintln!();
-            let mut sys_output = File::create(format!("data/ingest-loss/{tag}-sys.csv"))?;
-            writeln!(
-                &mut sys_output,
-                "{header},supply,num_stored,num_utilized_node,utilized_capacity,redundancy",
-            )?;
-            let mut bin_output = File::create(format!("data/ingest-loss/{tag}-bin.csv"))?;
-            writeln!(
-                &mut bin_output,
-                "{header},bin_index,num_bin_node,bin_hit_count,bin_capacity,bin_used_capacity,bin_max_utilization"
-            )?;
-            for (sys_stats, bin_stats) in results {
-                writeln!(&mut sys_output, "{prefix},{sys_stats}")?;
-                for line in bin_stats {
-                    writeln!(&mut bin_output, "{prefix},{line}")?
+            let mut output = File::create(format!("data/ingest-evict/{tag}-sys.csv"))?;
+            writeln!(&mut output, "{header},supply,num_stored,num_loss",)?;
+            for lines in results {
+                for line in lines {
+                    writeln!(&mut output, "{prefix},{line}")?
                 }
             }
         }
@@ -209,16 +193,17 @@ impl Node {
     }
 }
 
-fn sim_loss(
+fn sim_evict(
     num_node: usize,
-    node_min_capacity: usize,
+    num_attempt: usize,
     num_copy: usize,
     classified: bool,
     two_choices: bool,
+    node_min_capacity: usize,
     node_capacity_variance_distr: Zipf<f32>,
     mut rng: StdRng,
     report: impl Fn(String),
-) -> (String, Vec<String>) {
+) -> Vec<String> {
     let mut network = Network::random(
         num_node,
         node_min_capacity,
@@ -227,19 +212,11 @@ fn sim_loss(
         &mut rng,
     );
 
-    #[derive(Default, Clone)]
-    struct NodeBin {
-        num_node: usize,
-        freq: usize,
-        capacity: usize,
-        used_capacity: usize,
-        max_utilization: f32,
-    }
-    let mut num_stored = 0;
+    let mut num_loss = 0;
     let mut copy_counts = HashMap::default();
-    let mut bins = vec![NodeBin::default(); 64];
+    let mut lines = Vec::new();
     let mut last_report = Instant::now();
-    loop {
+    for num_storing in 0..num_attempt {
         let (data_id, node_ids) = create_workload(
             num_copy,
             two_choices,
@@ -247,30 +224,22 @@ fn sim_loss(
             &network.overlay,
             &network.nodes,
         );
-        for node_id in &node_ids {
-            let node = &network.nodes[node_id];
-            let bin = &mut bins[((node.capacity as f32 / node_min_capacity as f32)
-                .log2()
-                .floor()) as usize];
-            bin.freq += 1
-        }
-        if !ingest_with_eviction(
+        num_loss += ingest_with_eviction(
             &mut rng,
             &mut network.nodes,
             &mut copy_counts,
             data_id,
             node_ids,
-        ) {
-            break;
-        }
-        num_stored += 1;
+        );
         if last_report.elapsed() >= Duration::from_secs(1) {
-            report(format!("Stored {num_stored}"));
+            report(format!("Stored {} Loss {num_loss}", num_storing + 1));
             last_report = Instant::now()
         }
+        if (num_storing + 1) % (num_attempt / 100) == 0 {
+            lines.push(format!("{},{},{num_loss}", network.supply, num_storing + 1))
+        }
     }
-    //
-    Default::default()
+    lines
 }
 
 fn sim_reject(
@@ -291,9 +260,10 @@ fn sim_reject(
         node_capacity_variance_distr,
         &mut rng,
     );
-    let mut lines = Vec::new();
+    let mut num_stored_diff = 0;
     let mut num_stored = 0;
-    let mut num_stored_total = 0;
+    let mut lines = Vec::new();
+    let mut last_report = Instant::now();
     for n in 0..num_attempt {
         let (data_id, node_ids) = create_workload(
             num_copy,
@@ -303,18 +273,25 @@ fn sim_reject(
             &network.nodes,
         );
         if ingest_with_rejection(&mut network.nodes, data_id, &node_ids) {
-            num_stored += 1
+            num_stored_diff += 1
+        }
+        if last_report.elapsed() >= Duration::from_secs(1) {
+            report(format!(
+                "{} attempts, {} stored",
+                n + 1,
+                num_stored + num_stored_diff
+            ));
+            last_report = Instant::now()
         }
         if (n + 1) % (num_attempt / 100) == 0 {
-            num_stored_total += num_stored;
-            report(format!("{} attempts, {num_stored} stored", n + 1));
+            num_stored += num_stored_diff;
             lines.push(format!(
-                "{},{},{},{num_stored_total}",
+                "{},{},{},{num_stored}",
                 network.supply,
                 n + 1,
-                num_stored as f32 / (num_attempt / 100) as f32
+                num_stored_diff as f32 / (num_attempt / 100) as f32
             ));
-            num_stored = 0
+            num_stored_diff = 0
         }
     }
     lines
@@ -411,7 +388,8 @@ fn ingest_with_eviction(
     copy_counts: &mut HashMap<DataId, u8>,
     data_id: DataId,
     node_ids: Vec<NodeId>,
-) -> bool {
+) -> usize {
+    let mut num_loss = 0;
     for &node_id in &node_ids {
         let node = nodes.get_mut(&node_id).unwrap();
         if node.data.len() < node.capacity {
@@ -432,14 +410,14 @@ fn ingest_with_eviction(
             let evicted_count = copy_counts.get_mut(&evicted).unwrap();
             *evicted_count -= 1;
             if *evicted_count == 0 {
-                return false;
+                num_loss += 1
             }
         }
     }
     // let replaced = data_placements.insert(data_id, node_ids);
     let replaced = copy_counts.insert(data_id, node_ids.len() as _);
     assert!(replaced.is_none(), "duplicated data {data_id:016x}");
-    true
+    num_loss
 }
 
 fn ingest_with_rejection(
