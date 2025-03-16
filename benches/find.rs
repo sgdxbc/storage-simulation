@@ -1,6 +1,6 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use rand::{Rng as _, SeedableRng, rngs::StdRng};
-use storage_simulation::{Class, Classified, Target, BinOverlay, TrieOverlay};
+use storage_simulation::{BinOverlay, Class, Classified, TrieOverlay};
 
 pub fn criterion_benchmark(c: &mut Criterion) {
     let mut rng = StdRng::seed_from_u64(42);
@@ -60,15 +60,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         });
         if num_node <= 128 {
             group.bench_function(BenchmarkId::new("VanillaNaive", num_node), |b| {
-                b.iter(|| {
-                    let data_id = rng.random::<Target>();
-                    network_naive.sort_unstable_by_key(|id| id ^ data_id);
-                    network_naive
-                        .iter()
-                        .take(find_size)
-                        .cloned()
-                        .collect::<Vec<_>>()
-                })
+                b.iter(|| storage_simulation::find(&mut network_naive, rng.random(), find_size))
             });
         }
     }
