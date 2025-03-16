@@ -10,7 +10,7 @@ use hdrhistogram::Histogram;
 use rand::{Rng, SeedableRng, rng, rngs::StdRng};
 use rand_distr::{Distribution, Zipf};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
-use storage_simulation::{Classified, Overlay, VanillaBin};
+use storage_simulation::{Classified, Overlay, BinOverlay};
 
 fn main() -> anyhow::Result<()> {
     let num_find: u32 = 1_000_000;
@@ -79,7 +79,7 @@ fn run(
             let mut network = if classified {
                 Overlay::Classified(Classified::new())
             } else {
-                Overlay::Vanilla(VanillaBin::new())
+                Overlay::Vanilla(BinOverlay::new())
             };
 
             struct Node {

@@ -1,11 +1,16 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use proptest::{prelude::*, sample::SizeRange, test_runner::FileFailurePersistence};
 
-use crate::{Classified, DataId, NodeId, VanillaBin, VanillaTrie, classified};
+use crate::{BinOverlay, Classified, NodeId, Target, TrieOverlay, classified, find};
 
-fn common_config() -> ProptestConfig {
-    ProptestConfig::with_failure_persistence(FileFailurePersistence::WithSource("regressions"))
+fn common_config(cases: u32) -> ProptestConfig {
+    ProptestConfig {
+        cases,
+        ..ProptestConfig::with_failure_persistence(FileFailurePersistence::WithSource(
+            "regressions",
+        ))
+    }
 }
 
 prop_compose! {
@@ -14,105 +19,74 @@ prop_compose! {
     }
 }
 
-fn classified_node_ids() -> impl Strategy<Value = Vec<classified::NodeId>> {
-    prop::collection::vec(classified_node_id(), SizeRange::default())
+fn classified_node_ids() -> impl Strategy<Value = HashSet<classified::NodeId>> {
+    prop::collection::hash_set(classified_node_id(), SizeRange::default())
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig {
-        cases: 1 << 14, // ~0.7s
-        ..common_config()
-    })]
+    #![proptest_config(common_config(1 << 10))]
     #[test]
-    fn classified_find_node_works(node_ids in classified_node_ids(), data_id: DataId) {
-        let mut network = Classified::new();
+    fn overlay_find(node_ids: HashSet<NodeId>, target: Target) {
+        let mut trie = TrieOverlay::new();
+        let mut bin = BinOverlay::new();
+        for &node_id in &node_ids {
+            trie.insert_node(node_id);
+            bin.insert_node(node_id)
+        }
+        let mut compressed_trie = trie.clone();
+        compressed_trie.compress();
+        let mut node_ids = node_ids.into_iter().collect::<Vec<_>>();
+        for count in 1..node_ids.len() {
+            let ground_truth = find(&mut node_ids, target, count);
+            let results = trie.find(target, count);
+            assert_eq!(results.len(), count);
+            assert!(ground_truth.iter().all(|id| results.contains(id)));
+            let results = compressed_trie.find(target, count);
+            assert_eq!(results.len(), count);
+            assert!(ground_truth.iter().all(|id| results.contains(id)));
+            let results = bin.find(target, count);
+            assert_eq!(results.len(), count);
+            assert!(ground_truth.iter().all(|id| results.contains(id)))
+        }
+    }
+}
+
+proptest! {
+    #![proptest_config(common_config(1 << 10))]
+    #[test]
+    fn classified_overlay_find(node_ids in classified_node_ids(), target: Target) {
+        let mut overlay = Classified::new();
+        let mut distances = Vec::new();
+        let mut node_classes = HashMap::new();
         for (node_id, class) in node_ids {
-            network.insert_node(node_id, class)
+            node_classes.insert(node_id, class);
+            overlay.insert_node(node_id, class);
+            distances.push(classified::distance(node_id, target, class))
         }
-        network.find(data_id, 3);
-    }
-}
-
-proptest! {
-    #![proptest_config(ProptestConfig {
-        cases: 1 << 15, // ~0.9s
-        ..common_config()
-    })]
-    #[test]
-    fn classified_find_node_self(node_ids: Vec<NodeId>, find_node_id in classified_node_id()) {
-        let mut network = Classified::new();
-        for node_id in node_ids {
-            network.insert_node(node_id, 0)
-        }
-        let (node_id, class) = find_node_id;
-        network.insert_node(node_id, class);
-        let result_node_ids = network.find(node_id, 1);
-        assert_eq!(result_node_ids, vec![node_id])
-    }
-}
-
-proptest! {
-    #[test]
-    fn vanilla_find_node_closest(node_ids: HashSet<NodeId>, data_id: DataId) {
-        let mut network = VanillaBin::new();
-        let mut sorted_node_ids = node_ids.iter().cloned().collect::<Vec<_>>();
-        sorted_node_ids.sort_unstable_by_key(|id| id ^ data_id);
-        for node_id in node_ids {
-            network.insert_node(node_id)
-        }
-        for i in 1..sorted_node_ids.len() {
-            let node_ids = network.find(data_id, i);
-            assert_eq!(node_ids.len(), i);
-            assert!(sorted_node_ids[..i].iter().all(|id| node_ids.contains(id)))
+        let mut optimized_overlay = overlay.clone();
+        optimized_overlay.optimize();
+        distances.sort_unstable();
+        for count in 1..distances.len() {
+            let results = overlay.find(target, count);
+            assert_eq!(results.len(), count);
+            assert!(results.into_iter().all(|id| classified::distance(id, target, node_classes[&id]) <= distances[count - 1]));
+            let results = optimized_overlay.find(target, count);
+            assert_eq!(results.len(), count);
+            assert!(results.into_iter().all(|id| classified::distance(id, target, node_classes[&id]) <= distances[count - 1]))
         }
     }
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig {
-        cases: 1 << 10, // ~1.02s
-        ..common_config()
-    })]
+    #![proptest_config(common_config(1 << 10))]
     #[test]
-    fn vanilla_trie_find_node_closest(node_ids: HashSet<NodeId>, data_id: DataId) {
-        let mut network = VanillaTrie::new();
-        let mut sorted_node_ids = node_ids.iter().cloned().collect::<Vec<_>>();
-        sorted_node_ids.sort_unstable_by_key(|id| id ^ data_id);
+    fn trie_compress(node_ids: HashSet<NodeId>) {
+        prop_assume!(!node_ids.is_empty());
+        let mut overlay = TrieOverlay::new();
         for node_id in node_ids {
-            network.insert_node(node_id)
+            overlay.insert_node(node_id)
         }
-        for i in 1..sorted_node_ids.len() {
-            let node_ids = network.find(data_id, i);
-            // println!("{data_id:016x} {:016x?} {node_ids:016x?}", sorted_node_ids);
-            assert_eq!(node_ids.len(), i);
-            assert!(sorted_node_ids[..i].iter().all(|id| node_ids.contains(id)))
-        }
-    }
-}
-
-proptest! {
-    #![proptest_config(ProptestConfig {
-        cases: 1 << 10, // ~0.8s
-        ..common_config()
-    })]
-    #[test]
-    fn vanilla_trie_compress(node_ids: HashSet<NodeId>, data_id: DataId) {
-        if node_ids.is_empty() {
-            return Ok(())
-        }
-        let mut network = VanillaTrie::new();
-        let mut sorted_node_ids = node_ids.iter().cloned().collect::<Vec<_>>();
-        sorted_node_ids.sort_unstable_by_key(|id| id ^ data_id);
-        for node_id in node_ids {
-            network.insert_node(node_id)
-        }
-        network.compress();
-        network.assert_compressed();
-        for i in 1..sorted_node_ids.len() {
-            let node_ids = network.find(data_id, i);
-            // println!("{data_id:016x} {:016x?} {node_ids:016x?}", sorted_node_ids);
-            assert_eq!(node_ids.len(), i);
-            assert!(sorted_node_ids[..i].iter().all(|id| node_ids.contains(id)))
-        }
+        overlay.compress();
+        overlay.assert_compressed()
     }
 }
